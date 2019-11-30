@@ -1,0 +1,200 @@
+http://3.devbbs.sinaapp.com/
+
+发表于 2013-5-11 14:52:06 
+
+最近看到有用sae+微信公众平台控制嵌入式设备的帖子，，额。。。。嫉妒羡慕恨啊。
+挺羡慕那些搞单片机嵌入式的，额更牛b的估计是那些遥控小强，乌龟，金鱼（春晚，呵呵）
+自己就码农一个
+想起以前见过有用微博控制电脑的
+就写个用sae+微信公共平台控制pc的程序玩玩吧。
+
+开发环境 php,sae,vs2010,C#,微信公共平台
+程序分2部分，sae部分（处理微信消息），跟桌面部分（查询微信指令，做相应操作）。
+
+实现方法如下
+1.注册微信公共平台
+2.开启开发者模式
+3.搭建sae环境,写代码处理微信消息
+4.验证接口配置信息
+5.编写桌面程序，查询收到的微信执行，做相应操作
+
+
+具体实现步骤：
+
+1.注册了个微信公共平台帐号。审核通过后。开启高级功能里面的开发者模式
+
+2.注册sae后上传代码 主要3个文件
+weixin.php 验证微信接口，处理并返回微信的消息
+可参考 http://mp.weixin.qq.com/wiki/index.php?title=%E9%A6%96%E9%A1%B5
+query.php 查询用户最后一条微信消息内容
+pic.php  接受桌面段发回的截图
+数据库结构：
+
+
+
+创建一个为domain为pic的Storage
+
+
+3.weixin.php 的关键代码  
+微信消息接口的验证代码 
+PHP代码 
+$wechatObj->valid();  
+public function valid()
+    {
+        $echoStr = $_GET["echostr"];
+        if($this->checkSignature()){
+        echo $echoStr;
+        exit;
+        }
+    }
+private function checkSignature()
+{
+        $signature = $_GET["signature"];
+        $timestamp = $_GET["timestamp"];
+        $nonce = $_GET["nonce"];
+$token = TOKEN;
+$tmpArr = array($token, $timestamp, $nonce);
+sort($tmpArr);
+$tmpStr = implode( $tmpArr );
+$tmpStr = sha1( $tmpStr );
+if( $tmpStr == $signature ){
+return true;
+}else{
+return false;
+}
+}
+微信处理代码
+PHP代码 
+$postStr = $GLOBALS["HTTP_RAW_POST_DATA"];
+if (!emptyempty($postStr)){
+$postObj = simplexml_load_string($postStr, 'SimpleXMLElement', LIBXML_NOCDATA);
+$fromUsername = $postObj->FromUserName;
+$toUsername = $postObj->ToUserName;
+$keyword = trim($postObj->Content);
+$time = time();
+$textTpl = "<xml>
+<ToUserName><![CDATA[%s]]></ToUserName>
+<FromUserName><![CDATA[%s]]></FromUserName>
+<CreateTime>%s</CreateTime>
+<MsgType><![CDATA[%s]]></MsgType>
+<Content><![CDATA[%s]]></Content>
+<FuncFlag>0</FuncFlag>
+</xml>";
+if(!emptyempty( $keyword )&&($keyword=="摄像头截图"||$keyword=="屏幕截图")){
+$msgType = "text";
+$contentStr = "Welcome to wechat world!\n"."你的用户id是:\n".$fromUsername."\n 图片地址：\n"."http://hehe108-pic.stor.sinaapp.com/".$postObj->MsgId.".jpg";
+$resultStr = sprintf($textTpl, $fromUsername, $toUsername, $time, $msgType, $contentStr);
+$this->saveMsg($postObj->FromUserName,$postObj->CreateTime,$postObj->MsgType,$postObj->Content,$postObj->MsgId);
+echo $resultStr;
+}else{
+$msgType = "text";
+$contentStr = "Welcome to wechat world!\n"."你的用户id是:\n".$fromUsername;
+$resultStr = sprintf($textTpl, $fromUsername, $toUsername, $time, $msgType, $contentStr);        
+if($postObj->MsgType=="text")
+{
+$this->saveMsg($postObj->FromUserName,$postObj->CreateTime,$postObj->MsgType,$postObj->Content,$postObj->MsgId);
+}
+echo $resultStr;        
+}
+}
+query.php关键代码
+通过FromUserName查询最后一条微信的内容跟微信编号
+PHP代码 
+$mysql = new SaeMysql();
+$sql = "SELECT * FROM `weixin`   where FromUserName='".$_GET["FromUserName"]."'  order by  CreateTime  desc   LIMIT 1";
+$data = $mysql->getData( $sql );
+echo $data[0]["MsgId"].",".$data[0]["Content"];
+pic.php 代码
+接受桌面段发过来的图片用msgid.jpg的名称保存到sae的存储区
+PHP代码 
+$target_path = SAE_TMP_PATH;
+$basename=basename( $_FILES['uploadedfile']['name']);
+$domain='pic';
+$uuid=md5(uniqid(rand(), true));
+$target_path = $target_path.$uuid;
+if(move_uploaded_file($_FILES['uploadedfile']['tmp_name'], $target_path)) {
+} else{
+    echo "There was an error uploading the file, please try again!";
+}
+$file_contents= file_get_contents($target_path);
+$s = new SaeStorage();
+$filename=$_GET["MsgId"].".jpg";
+$s->write($domain, $filename ,$file_contents);
+4.验证接口  
+url 写  sae中  weixin.php的路径就可以 比如   http://hehe108.sinaapp.com/weixin.php  
+token 跟weixin.php里面定义的token一致就可以通过验证
+5.桌面程序实现
+a.添加一个计时器，定时取自己id的最后一条微信
+            SyncHttp http = new SyncHttp();
+            ret = http.HttpGet("http://hehe108.sinaapp.com/query.php", "FromUserName=" + FromUserName);
+b.判断取到的微信是不是最新发送的
+C#代码 
+            string MsgId = str.Split(',')[0];
+            StringBuilder sb = new StringBuilder(255);
+            GetPrivateProfileString("Config", "MsgId", "", sb, sb.Capacity, configpath);
+            string oldID = sb.ToString();
+            if (MsgId != oldID)
+            {
+                string text = str.Split(',')[1];
+                WritePrivateProfileString("Config", "MsgId", MsgId, configpath);
+                ProcessCommand(text, MsgId);
+            }
+c.电脑重启代码
+Process.Start("shutdown", "-r -f -t 300");
+d.关机代码
+Process.Start("shutdown", "-s -f -t 300");
+取消关机
+Process.Start("shutdown", "-a");
+e.屏幕截图
+C#代码 
+                    var temp1 = Environment.GetEnvironmentVariable("TEMP");
+                    var picPath1 = string.Format("{0}\\{1}.jpg", temp1, Guid.NewGuid());
+                    Class1.GetScreen(picPath1);
+                    if (File.Exists(picPath1))
+                        Send(picPath1);
+f.摄像头截图
+C#代码 
+     var temp = Environment.GetEnvironmentVariable("TEMP");
+                    var picPath = string.Format("{0}\\{1}.jpg", temp, Guid.NewGuid());
+                    Class1.GetCamera(picPath, this.pictureBox1);
+                    if(File.Exists(picPath))
+                    Send(picPath);
+                    break;
+e.把截图的图像发到sae存储区
+C#代码 
+        public void Send(string file,string MsgId)
+        {
+            string ret;
+            SyncHttp http = new SyncHttp();
+            List< Parameter> files = new List< Parameter>();
+            files.Add(new Parameter("uploadedfile", file));
+            ret = http.HttpPostWithFile("http://hehe108.sinaapp.com/pic.php", "MsgId=" + MsgId, files);
+        }
+使用方法
+1.添加微信帐号weixinRemote  
+
+
+2.在要控制的电脑上下载桌面端 
+运行桌面端程序 输入 关注weixinRemote 时返回的用户id!!!!!这个地方必须填写自己的id不然没效果 
+3.点击开启，给weixinRemote 发送指令  ，桌面端就可以进行相应的操作   
+试了个摄像头截图，跟桌面截图   (目前可以发送：关机，取消关机，摄像头截图，屏幕截图)
+效果如下
+
+
+
+
+代码下载：
+
+
+
+出处：http://cloudbbs.org/forum.php?mod=viewthread&tid=14723
+关于作者：菜鸟一枚。如有问题或建议，请多多赐教！ 
+
+
+注意：
+1.桌面端的计时器默认设置为10秒， 如果打开截图的链接地址如果显示404，可能是桌面端计时器还未执行。10秒后再打开连接。
+2.里面的微信帐号 数据库 url地址 都是自己测试的时候用的，朋友们也可以自己按照上面的步骤注册sae，微信公共平台
+
+
+求推荐 http://sae.sina.com.cn/?m=home&a ... level&voteme=ddghdj
+
